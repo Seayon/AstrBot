@@ -390,7 +390,7 @@ class WeChatPadProAdapter(Platform):
                         ping_interval=30,  # 每 30s 发一个 ping 控制帧
                         ping_timeout=10  # 10s 内没等到 pong 就判定断开
                 ) as websocket:
-                    logger.debug("WebSocket 连接成功。")
+                    logger.info("WebSocket 连接成功。")
                     # 保持连接，依赖 ping_interval/ping_timeout 做保活
                     while True:
                         try:
