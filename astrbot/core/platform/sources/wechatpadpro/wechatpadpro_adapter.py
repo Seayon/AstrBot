@@ -224,18 +224,23 @@ class WeChatPadProAdapter(Platform):
                     response_data = await response.json()
                     # 修正成功判断条件和授权码提取路径
                     if response.status == 200 and response_data.get("Code") == 200:
-                        # 授权码在 Data 字段的列表中
-                        if (
-                            response_data.get("Data")
-                            and isinstance(response_data["Data"], list)
-                            and len(response_data["Data"]) > 0
-                        ):
-                            self.auth_key = response_data["Data"][0]
-                            logger.info(f"成功获取授权码 {self.auth_key[:8]}...")
-                        else:
-                            logger.error(
-                                f"生成授权码成功但未找到授权码: {response_data}"
-                            )
+                        # 兼容新旧两种API格式
+                        auth_key = None
+                        data = response_data.get("Data")
+
+                        if data:
+                            # 新格式：Data 是字典，包含 authKeys 列表
+                            if isinstance(data, dict) and "authKeys" in data:
+                                auth_keys = data["authKeys"]
+                                if isinstance(auth_keys, list) and len(auth_keys) > 0:
+                                    auth_key = auth_keys[0]
+                            # 旧格式：Data 直接是授权码列表
+                            elif isinstance(data, list) and len(data) > 0:
+                                auth_key = data[0]
+
+                        if auth_key:
+                            self.auth_key = auth_key
+                            logger.info("成功获取授权码")
                     else:
                         logger.error(
                             f"生成授权码失败: {response.status}, {response_data}"
@@ -257,12 +262,19 @@ class WeChatPadProAdapter(Platform):
             try:
                 async with session.post(url, params=params, json=payload) as response:
                     response_data = await response.json()
+                    # 修正成功判断条件和数据提取路径
                     if response.status == 200 and response_data.get("Code") == 200:
-                        # 二维码地址在 Data.QrCodeUrl 字段中
-                        if response_data.get("Data") and response_data["Data"].get(
-                            "QrCodeUrl"
-                        ):
-                            return response_data["Data"]["QrCodeUrl"]
+                        # 兼容新旧两种API格式的二维码地址获取
+                        qr_code_url = None
+
+                        # 旧格式：二维码地址在 Data.QrCodeUrl 字段中
+                        if response_data.get("Data") and response_data["Data"].get("QrCodeUrl"):
+                            qr_code_url = response_data["Data"]["QrCodeUrl"]
+                        # 新格式：二维码地址在 Data.qrCodeUrl 字段中
+                        if response_data.get("Data") and response_data["Data"].get("qrCodeUrl"):
+                            qr_code_url = response_data["Data"]["qrCodeUrl"]
+                        if qr_code_url:
+                            return qr_code_url
                         else:
                             logger.error(
                                 f"获取登录二维码成功但未找到二维码地址: {response_data}"
@@ -305,19 +317,26 @@ class WeChatPadProAdapter(Platform):
                 try:
                     async with session.get(url, params=params) as response:
                         response_data = await response.json()
+
+                        # 兼容新旧两种API返回格式
+                        # 旧格式: {"Code": 200, "Data": {...}}
+                        # 新格式: {"code": 200, "data": {...}, "success": true, "message": "..."}
+                        code_field = response_data.get("Code") or response_data.get("code")
+                        data_field = response_data.get("Data") or response_data.get("data")
+
                         # 成功判断条件和数据提取路径
-                        if response.status == 200 and response_data.get("Code") == 200:
+                        if response.status == 200 and code_field == 200:
                             if (
-                                response_data.get("Data")
-                                and response_data["Data"].get("state") is not None
+                                    data_field
+                                    and data_field.get("state") is not None
                             ):
-                                status = response_data["Data"]["state"]
+                                status = data_field["state"]
                                 logger.info(
                                     f"第 {attempts + 1} 次尝试，当前登录状态: {status}，还剩{countdown - attempts * 5}秒"
                                 )
                                 if status == 2:  # 状态 2 表示登录成功
-                                    self.wxid = response_data["Data"].get("wxid")
-                                    self.wxnewpass = response_data["Data"].get(
+                                    self.wxid = data_field.get("wxid")
+                                    self.wxnewpass = data_field.get(
                                         "wxnewpass"
                                     )
                                     logger.info(
@@ -332,7 +351,7 @@ class WeChatPadProAdapter(Platform):
                                 logger.error(
                                     f"检测登录状态成功但未找到登录状态: {response_data}"
                                 )
-                        elif response_data.get("Code") == 300:
+                        elif code_field == 300:
                             # "不存在状态"
                             pass
                         else:
@@ -366,7 +385,11 @@ class WeChatPadProAdapter(Platform):
         )
         while True:
             try:
-                async with websockets.connect(ws_url) as websocket:
+                async with websockets.connect(
+                        ws_url,
+                        ping_interval=30,  # 每 30s 发一个 ping 控制帧
+                        ping_timeout=10  # 10s 内没等到 pong 就判定断开
+                ) as websocket:
                     logger.debug("WebSocket 连接成功。")
                     # 设置空闲超时重连
                     wait_time = (
