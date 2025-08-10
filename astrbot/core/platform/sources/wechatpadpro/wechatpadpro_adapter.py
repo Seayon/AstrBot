@@ -391,24 +391,24 @@ class WeChatPadProAdapter(Platform):
                         ping_timeout=10  # 10s 内没等到 pong 就判定断开
                 ) as websocket:
                     logger.debug("WebSocket 连接成功。")
-                    # 设置空闲超时重连
-                    wait_time = (
-                        self.active_message_poll_interval
-                        if self.active_mesasge_poll
-                        else 120
-                    )
+                    # 保持连接，依赖 ping_interval/ping_timeout 做保活
                     while True:
                         try:
-                            message = await asyncio.wait_for(
-                                websocket.recv(), timeout=wait_time
-                            )
+                            message = await websocket.recv()  # 没消息就一直等
+                            # 确保消息是字符串类型
+                            if isinstance(message, (bytes, bytearray)):
+                                message = message.decode('utf-8')
+                            elif isinstance(message, memoryview):
+                                message = bytes(message).decode('utf-8')
+                            elif not isinstance(message, str):
+                                message = str(message)
                             # logger.debug(message) # 不显示原始消息内容
                             asyncio.create_task(self.handle_websocket_message(message))
-                        except asyncio.TimeoutError:
-                            logger.debug(f"WebSocket 连接空闲超过 {wait_time} s")
+                        except websockets.exceptions.ConnectionClosedOK as e:
+                            logger.info(f"对端正常关闭: code={e.code}, reason={e.reason}")
                             break
-                        except websockets.exceptions.ConnectionClosedOK:
-                            logger.info("WebSocket 连接正常关闭。")
+                        except websockets.exceptions.ConnectionClosedError as e:
+                            logger.warning(f"连接异常关闭: code={e.code}, reason={e.reason}")
                             break
                         except Exception as e:
                             logger.error(f"处理 WebSocket 消息时发生错误: {e}")
