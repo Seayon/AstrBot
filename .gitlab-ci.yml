@@ -1,0 +1,220 @@
+# AstrBot GitLab CI/CD 配置文件
+# 基于 Python 服务的 CI/CD 流水线
+
+stages:
+  - build
+  - test
+  - deploy
+  - post_actions
+
+variables:
+  CI_PROJECT_NAME_ASTRBOT: $CI_PROJECT_NAME-astrbot # AstrBot 服务的部署名称
+  DOCKER_BUILD_CLI_OPTS: ""
+  PYTHON_VERSION: "3.11"
+
+# 构建阶段 - 代码质量检查和依赖安装
+build:
+  stage: build
+  image: python:${PYTHON_VERSION}-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends gcc build-essential python3-dev libffi-dev libssl-dev
+    - python -m pip install uv
+  script:
+    - echo "检查 Python 版本..."
+    - python --version
+    - echo "安装依赖..."
+    - uv pip install -r requirements.txt --no-cache-dir --system
+    - echo "代码质量检查..."
+    - uv pip install ruff --no-cache-dir --system
+    - ruff check .
+    - ruff format --check .
+  artifacts:
+    expire_in: 1 hour
+    paths:
+      - .
+  only:
+    changes:
+      - "**/*.py"
+      - requirements.txt
+      - pyproject.toml
+      - .gitlab-ci.yml
+
+# 测试阶段
+test:
+  stage: test
+  image: python:${PYTHON_VERSION}-slim
+  needs:
+    - job: build
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends gcc build-essential python3-dev libffi-dev libssl-dev
+    - python -m pip install uv
+    - uv pip install -r requirements.txt --no-cache-dir --system
+    - uv pip install pytest pytest-asyncio pytest-cov --no-cache-dir --system
+  script:
+    - echo "运行测试套件..."
+    - python -m pytest tests/ -v --cov=astrbot --cov-report=xml --cov-report=term
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    expire_in: 1 week
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  only:
+    changes:
+      - "**/*.py"
+      - requirements.txt
+      - pyproject.toml
+      - tests/**/*
+      - .gitlab-ci.yml
+
+# AstrBot 部署基础模板
+.astrbot-deploy:
+  stage: deploy
+  image: jfrog.wosai-inc.com/docker-local-prod/python-builder:1.0.1
+  script:
+    - echo "构建 AstrBot Docker 镜像..."
+    - docker build -t jfrog.wosai-inc.com/$ARTIFACTORY_REPO/$CI_PROJECT_NAME_ASTRBOT:$DOCKER_IMAGE_TAG .
+    - echo "推送镜像到 JFrog..."
+    - jfrog rt dp jfrog.wosai-inc.com/$ARTIFACTORY_REPO/$CI_PROJECT_NAME_ASTRBOT:$DOCKER_IMAGE_TAG $ARTIFACTORY_REPO --build-name=$CI_PROJECT_NAME_ASTRBOT --build-number=$CI_PIPELINE_ID
+    - jfrog rt bp $CI_PROJECT_NAME_ASTRBOT $CI_PIPELINE_ID
+    - echo "清理本地镜像..."
+    - docker rmi jfrog.wosai-inc.com/$ARTIFACTORY_REPO/$CI_PROJECT_NAME_ASTRBOT:$DOCKER_IMAGE_TAG
+
+# 开发环境部署 (feature/release/hotfix 分支)
+astrbot-deploy-dev:
+  extends: .astrbot-deploy
+  variables:
+    ARTIFACTORY_REPO: docker-virtual-dev
+  before_script:
+    - ARTIFACT_VERSION=v0.0.0-$(date +%Y%m%d%H%M%S)-$CI_COMMIT_SHORT_SHA
+    - DOCKER_IMAGE_TAG=$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHA
+  needs:
+    - job: test
+  only:
+    refs:
+      - /^release.*/
+      - /^hotfix.*/
+      - /^feature.*/
+    changes:
+      - "**/*.py"
+      - requirements.txt
+      - pyproject.toml
+      - Dockerfile
+      - main.py
+      - astrbot/**/*
+  tags:
+    - jfrog-dev
+
+# 生产环境部署 (tags)
+astrbot-deploy-prod:
+  extends: .astrbot-deploy
+  variables:
+    ARTIFACTORY_REPO: docker-virtual-staging
+  before_script:
+    - ARTIFACT_VERSION=v${CI_COMMIT_REF_NAME#v}
+    - DOCKER_IMAGE_TAG=$CI_COMMIT_REF_NAME-$CI_COMMIT_SHA
+  needs:
+    - job: test
+  only:
+    refs:
+      - tags
+    changes:
+      - "**/*.py"
+      - requirements.txt
+      - pyproject.toml
+      - Dockerfile
+      - main.py
+      - astrbot/**/*
+  tags:
+    - jfrog-staging
+
+# 构建信息收集和发布
+.astrbot-build-info:
+  stage: post_actions
+  image: jfrog.wosai-inc.com/docker-virtual-prod/middleware/node-builder:20
+  script:
+    - jfrog c show
+    # 收集环境变量
+    - jfrog rt bce $CI_PROJECT_NAME_ASTRBOT $CI_PIPELINE_ID
+    # 收集 Git 信息
+    - jfrog rt bag $CI_PROJECT_NAME_ASTRBOT $CI_PIPELINE_ID
+    # 发布构建信息
+    - jfrog rt bp $CI_PROJECT_NAME_ASTRBOT $CI_PIPELINE_ID
+
+# 开发环境构建信息发布
+astrbot-build-info-dev:
+  extends: .astrbot-build-info
+  needs:
+    - job: astrbot-deploy-dev
+  only:
+    refs:
+      - /^release.*/
+      - /^hotfix.*/
+      - /^feature.*/
+    changes:
+      - "**/*.py"
+      - requirements.txt
+      - pyproject.toml
+      - Dockerfile
+      - main.py
+      - astrbot/**/*
+  tags:
+    - jfrog-dev
+
+# 生产环境构建信息发布
+astrbot-build-info-prod:
+  extends: .astrbot-build-info
+  needs:
+    - job: astrbot-deploy-prod
+  only:
+    refs:
+      - tags
+    changes:
+      - "**/*.py"
+      - requirements.txt
+      - pyproject.toml
+      - Dockerfile
+      - main.py
+      - astrbot/**/*
+  tags:
+    - jfrog-staging
+
+# 可选：自动部署任务（如果需要启用，请取消注释）
+# astrbot-autodeploy-dev:
+#   extends: autodeploy
+#   stage: autodeploy
+#   variables:
+#     APPNAME: $CI_PROJECT_NAME_ASTRBOT
+#   needs:
+#     - job: astrbot-deploy-dev
+#   only:
+#     refs:
+#       - /^release.*/
+#       - /^hotfix.*/
+#       - /^feature.*/
+#     changes:
+#       - "**/*.py"
+#       - requirements.txt
+#       - pyproject.toml
+#       - Dockerfile
+#       - main.py
+#       - astrbot/**/*
+
+# astrbot-autodeploy-prod:
+#   extends: autodeploy
+#   stage: autodeploy
+#   variables:
+#     APPNAME: $CI_PROJECT_NAME_ASTRBOT
+#   needs:
+#     - job: astrbot-deploy-prod
+#   only:
+#     refs:
+#       - tags
+#     changes:
+#       - "**/*.py"
+#       - requirements.txt
+#       - pyproject.toml
+#       - Dockerfile
+#       - main.py
+#       - astrbot/**/*
