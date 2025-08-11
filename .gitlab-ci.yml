@@ -12,62 +12,6 @@ variables:
   DOCKER_BUILD_CLI_OPTS: ""
   PYTHON_VERSION: "3.11"
 
-# 构建阶段 - 代码质量检查和依赖安装
-build:
-  stage: build
-  image: python:${PYTHON_VERSION}-slim
-  before_script:
-    - apt-get update && apt-get install -y --no-install-recommends gcc build-essential python3-dev libffi-dev libssl-dev
-    - python -m pip install uv
-  script:
-    - echo "检查 Python 版本..."
-    - python --version
-    - echo "安装依赖..."
-    - uv pip install -r requirements.txt --no-cache-dir --system
-    - echo "代码质量检查..."
-    - uv pip install ruff --no-cache-dir --system
-    - ruff check .
-    - ruff format --check .
-  artifacts:
-    expire_in: 1 hour
-    paths:
-      - .
-  only:
-    changes:
-      - "**/*.py"
-      - requirements.txt
-      - pyproject.toml
-      - .gitlab-ci.yml
-
-# 测试阶段
-test:
-  stage: test
-  image: python:${PYTHON_VERSION}-slim
-  needs:
-    - job: build
-  before_script:
-    - apt-get update && apt-get install -y --no-install-recommends gcc build-essential python3-dev libffi-dev libssl-dev
-    - python -m pip install uv
-    - uv pip install -r requirements.txt --no-cache-dir --system
-    - uv pip install pytest pytest-asyncio pytest-cov --no-cache-dir --system
-  script:
-    - echo "运行测试套件..."
-    - python -m pytest tests/ -v --cov=astrbot --cov-report=xml --cov-report=term
-  artifacts:
-    reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage.xml
-    expire_in: 1 week
-  coverage: '/TOTAL.*\s+(\d+%)$/'
-  only:
-    changes:
-      - "**/*.py"
-      - requirements.txt
-      - pyproject.toml
-      - tests/**/*
-      - .gitlab-ci.yml
-
 # AstrBot 部署基础模板
 .astrbot-deploy:
   stage: deploy
