@@ -107,6 +107,23 @@ class LarkMessageEvent(AstrMessageEvent):
 
         await super().send(message)
 
+    async def react(self, emoji: str):
+        request = (
+            CreateMessageReactionRequest.builder()
+            .message_id(self.message_obj.message_id)
+            .request_body(
+                CreateMessageReactionRequestBody.builder()
+                .reaction_type("emoji")
+                .emoji_type(emoji)
+                .build()
+            )
+            .build()
+        )
+        response = await self.bot.im.v1.message_reaction.acreate(request)
+        if not response.success():
+            logger.error(f"发送飞书表情回应失败({response.code}): {response.msg}")
+        await super().send(MessageChain([Plain(emoji)]))
+
     async def send_streaming(self, generator, use_fallback: bool = False):
         buffer = None
         async for chain in generator:

@@ -115,6 +115,15 @@ DEFAULT_CONFIG = {
         "port": 6185,
     },
     "platform": [],
+    "platform_specific": {
+        # NOTE: 当前仅支持 Telegram、飞书、Discord 和 Slack
+        "pre_ack_emoji": {
+            "enable": False,
+            # 可填写多个表情枚举字符串，将随机选取一个响应
+            # 飞书表情枚举参考: https://open.feishu.cn/document/server-docs/im-v1/message-reaction-emoji
+            "emojis": ["SMILE"],
+        },
+    },
     "wake_prefix": ["/"],
     "log_level": "INFO",
     "pip_install_arg": "",
@@ -2182,6 +2191,26 @@ CONFIG_METADATA_3 = {
                     },
                 },
             },
+        },
+    },
+    "platform_specific_group": {
+        "name": "平台特异配置",
+        "metadata": {
+            "pre_ack": {
+                "description": "处理前表情回应",
+                "type": "object",
+                "items": {
+                    "platform_specific.pre_ack_emoji.enable": {
+                        "description": "启用",
+                        "type": "bool",
+                    },
+                    "platform_specific.pre_ack_emoji.emojis": {
+                        "description": "表情枚举列表(参见飞书枚举: https://open.feishu.cn/document/server-docs/im-v1/message-reaction-emoji)",
+                        "type": "list",
+                        "items": {"type": "string"},
+                    },
+                },
+            }
         },
     },
     "plugin_group": {

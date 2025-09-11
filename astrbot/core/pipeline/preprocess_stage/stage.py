@@ -1,11 +1,13 @@
 import traceback
 import asyncio
+import random
 from typing import Union, AsyncGenerator
 from ..stage import Stage, register_stage
 from ..context import PipelineContext
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core import logger
 from astrbot.core.message.components import Plain, Record, Image
+from astrbot.core.message.message_event_result import MessageChain
 
 
 @register_stage
@@ -22,6 +24,16 @@ class PreProcessStage(Stage):
         self, event: AstrMessageEvent
     ) -> Union[None, AsyncGenerator[None, None]]:
         """在处理事件之前的预处理"""
+        pre_ack = self.config.get("platform_specific", {}).get("pre_ack_emoji", {})
+        supported = {"telegram", "lark", "discord", "slack"}
+        if pre_ack.get("enable") and event.get_platform_name() in supported:
+            emojis = pre_ack.get("emojis", [])
+            if emojis:
+                emoji = random.choice(emojis)
+                try:
+                    await event.react(emoji)
+                except Exception as e:
+                    logger.warning(f"预回应表情发送失败: {e}")
         # 路径映射
         if mappings := self.platform_settings.get("path_mapping", []):
             # 支持 Record，Image 消息段的路径映射。
