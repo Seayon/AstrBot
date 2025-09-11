@@ -108,13 +108,17 @@ class LarkMessageEvent(AstrMessageEvent):
         await super().send(message)
 
     async def react(self, emoji: str):
+        # 使用正确的 SDK 构造方式：在 reaction_type 中传入 Emoji 对象
         request = (
             CreateMessageReactionRequest.builder()
             .message_id(self.message_obj.message_id)
             .request_body(
                 CreateMessageReactionRequestBody.builder()
-                .reaction_type("emoji")
-                .emoji_type(emoji)
+                .reaction_type(
+                    Emoji.builder()
+                    .emoji_type(emoji)
+                    .build()
+                )
                 .build()
             )
             .build()
@@ -122,7 +126,19 @@ class LarkMessageEvent(AstrMessageEvent):
         response = await self.bot.im.v1.message_reaction.acreate(request)
         if not response.success():
             logger.error(f"发送飞书表情回应失败({response.code}): {response.msg}")
-        await super().send(MessageChain([Plain(emoji)]))
+            return None
+        # 记录 reaction_id，供后续删除使用
+        try:
+            reaction_id = response.data.reaction_id if response.data else None
+        except Exception:
+            reaction_id = None
+        if reaction_id:
+            # 保存到事件的额外信息中，后续在 send 后删除
+            self.set_extra("_lark_pre_ack_reaction", {
+                "message_id": self.message_obj.message_id,
+                "reaction_id": reaction_id,
+            })
+        return reaction_id
 
     async def send_streaming(self, generator, use_fallback: bool = False):
         buffer = None
