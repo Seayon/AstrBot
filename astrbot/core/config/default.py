@@ -116,13 +116,13 @@ DEFAULT_CONFIG = {
     },
     "platform": [],
     "platform_specific": {
-        # NOTE: 当前仅支持 Telegram、飞书、Discord 和 Slack
-        "pre_ack_emoji": {
-            "enable": False,
-            # 可填写多个表情枚举字符串，将随机选取一个响应
-            # 飞书表情枚举参考: https://open.feishu.cn/document/server-docs/im-v1/message-reaction-emoji
-            "emojis": ["SMILE"],
+        # 平台特异配置：按平台分类，平台下按功能分组
+        "lark": {
+            "pre_ack_emoji": {"enable": False, "emojis": ["Typing"]},
         },
+        "telegram": {
+            "pre_ack_emoji": {"enable": False, "emojis": ["✍️"]},
+        }
     },
     "wake_prefix": ["/"],
     "log_level": "INFO",
@@ -2196,21 +2196,38 @@ CONFIG_METADATA_3 = {
     "platform_specific_group": {
         "name": "平台特异配置",
         "metadata": {
-            "pre_ack": {
-                "description": "处理前表情回应",
+            "lark": {
+                "description": "飞书",
                 "type": "object",
                 "items": {
-                    "platform_specific.pre_ack_emoji.enable": {
-                        "description": "启用",
+                    "platform_specific.lark.pre_ack_emoji.enable": {
+                        "description": "预回应表情",
                         "type": "bool",
                     },
-                    "platform_specific.pre_ack_emoji.emojis": {
-                        "description": "表情枚举列表(参见飞书枚举: https://open.feishu.cn/document/server-docs/im-v1/message-reaction-emoji)",
+                    "platform_specific.lark.pre_ack_emoji.emojis": {
+                        "description": "表情列表（飞书表情枚举名）",
                         "type": "list",
                         "items": {"type": "string"},
+                        "hint": "参考：https://open.feishu.cn/document/server-docs/im-v1/message-reaction/emojis-introduce",
                     },
                 },
-            }
+            },
+            "telegram": {
+                "description": "Telegram",
+                "type": "object",
+                "items": {
+                    "platform_specific.telegram.pre_ack_emoji.enable": {
+                        "description": "预回应表情",
+                        "type": "bool",
+                    },
+                    "platform_specific.telegram.pre_ack_emoji.emojis": {
+                        "description": "表情列表（Unicode，可多选）",
+                        "type": "list",
+                        "items": {"type": "string"},
+                        "hint": "Telegram 仅支持固定反应集合: 👍,👎,❤,🔥,🥰,👏,😁,🤔,🤯,😱,🤬,😢,🎉,🤩,🤮,💩,🙏,👌,🕊,🤡,🥱,🥴,😍,🐳,❤️‍🔥,🌚,🌭,💯,🤣,⚡,🍌,🏆,💔,🤨,😐,🍓,🍾,💋,🖕,😈,😴,😭,🤓,👻,👨‍💻,👀,🎃,🙈,😇,😨,🤝,✍,🤗,🫡,🎅,🎄,☃,💅,🤪,🗿,🆒,💘,🙉,🦄,😘,💊,🙊,😎,👾,🤷‍♂️,🤷,🤷‍♀️,😡",
+                    },
+                },
+            },
         },
     },
     "plugin_group": {
